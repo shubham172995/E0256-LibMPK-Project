@@ -3,6 +3,13 @@
 #include <openssl/evp.h>
 #include <string.h>
 #include <stdio.h>
+ 
+/* 
+void TrustedInit()
+{
+    
+}
+*/
 
 void generate_key(uint8_t *key, size_t key_len) {
     if (RAND_bytes(key, key_len) != 1) {
