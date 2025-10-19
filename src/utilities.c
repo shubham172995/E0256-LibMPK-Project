@@ -31,6 +31,7 @@ void SecureZero(void *ptr, size_t len) {
     volatile unsigned char *p = (volatile unsigned char *)ptr;
     while (len--) *p++ = 0;
 }
+
 /*
     Takes a buffer's start pointer and a size argument. Returns false if buffer has a non-zero byte.
 */

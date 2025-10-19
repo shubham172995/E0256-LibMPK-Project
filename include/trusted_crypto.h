@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <openssl/rand.h>
+#include <openssl/evp.h>
+#include <string.h>
 #include "utilities.h"
 
 typedef uint32_t keyId_t;

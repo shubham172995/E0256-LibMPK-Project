@@ -1,8 +1,4 @@
 #include "trusted_crypto.h"
-#include <openssl/rand.h>
-#include <openssl/evp.h>
-#include <string.h>
-#include <stdio.h>
  
 /* 
 void TrustedInit()
