@@ -8,5 +8,5 @@ CFLAGS := -Iinclude -I$(OPENSSL_DIR)/include
 LDFLAGS := -L$(OPENSSL_DIR)/lib -lcrypto
 
 # Default target
-main: src/main.c src/trusted_crypto.c src/utilities.c include/trusted_crypto.h include/utilities.h
-	$(CC) -o main src/main.c src/trusted_crypto.c src/utilities.c $(CFLAGS) $(LDFLAGS)
+main: src/main.c src/trusted_crypto.c src/utilities.c src/envelope.c include/trusted_crypto.h include/utilities.h include/envelope.h
+	$(CC) -o main src/main.c src/trusted_crypto.c src/utilities.c src/envelope.c $(CFLAGS) $(LDFLAGS)

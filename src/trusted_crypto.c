@@ -1,54 +1,239 @@
 #include "trusted_crypto.h"
- 
-/* 
-void TrustedInit()
-{
-    
-}
-*/
 
-void generate_key(uint8_t *key, size_t key_len) {
-    if (RAND_bytes(key, key_len) != 1) {
+static keyEntry* keyEntryTable[8192];  //  Maximum number of keys is 8192. 32 (per page) * 256 (nr of pages).
+static size_t keyIndexToBeUsed = 0;
+static size_t nrOfKeysCreated = 0;
+
+void GenerateKey(uint8_t *key, size_t keyLen) {
+    if (RAND_bytes(key, keyLen) != 1) {
         fprintf(stderr, "Error generating random key\n");
     }
 }
 
-int encrypt_data(const uint8_t *plaintext, size_t plaintext_len,
-                 const uint8_t *key, const uint8_t *iv,
-                 uint8_t *ciphertext, uint8_t *tag) {
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int len, ciphertext_len = 0;
+/*
+    Generates multiple keys for our purpose.
+*/
+void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset)
+{
+    for(uint32_t keyIndex = 0; keyIndex < nrOfKeys; ++keyIndex)
+    {
+        //  Using this to make sure that keys are unique.
+        while(true)
+        {
+            bool uniqueFound = true;
+            GenerateKey(mappedRegion + mappedRegionOffset, keyLen);
 
-    EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL);
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
-    EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv);
+            if(CheckZeroBytes(mappedRegion + mappedRegionOffset, keyLen))
+            {
+                //  returns true if bytes are 0.
+                continue;
+            }
 
-    EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len);
-    ciphertext_len = len;
-    EVP_EncryptFinal_ex(ctx, ciphertext + len, &len);
-    ciphertext_len += len;
+            for (size_t off = 0; off < nrOfKeysCreated; ++off) {
+                keyEntry *existing = keyEntryTable[off]; //  'existing' points to the earlier key. Check once that MPK should protect this read.
+                if(keyLen == existing->keyLen)  //  Proceed only if keyLen of this key is keyLen of current key.
+                {
+                    if (memcmp((mappedRegion + mappedRegionOffset), existing->addressOfKeyInpage, keyLen) == 0)
+                    {
+                        uniqueFound = false;
+                        break;
+                    }
+                }
+            }
 
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag);
-    EVP_CIPHER_CTX_free(ctx);
-    return ciphertext_len;
+            /*
+                        THIS WAS USED EARLIER TO FIND IF KEYS AMONG A PAGE HELD DUPLICATES. NOW, WITH keyEntry table,
+                        this approach is not required. Still, leaving it commented. Could be useful.
+
+            for (size_t off = 0; off < mappedRegionOffset; off += keyLen) {
+                uint8_t *existing = mappedRegion + off; //  'existing' points to the page. Check once that MPK should protect this read.
+                if (memcmp((mappedRegion + mappedRegionOffset), existing, keyLen) == 0) {
+                    uniqueFound = false;
+                    break;
+                }
+            }
+            */
+            if(uniqueFound)
+            {
+                break;
+            }
+        }
+        keyEntryTable[nrOfKeysCreated] = (keyEntry*)malloc(sizeof(keyEntry));
+        keyEntryTable[nrOfKeysCreated]->keyLen = keyLen;
+        keyEntryTable[nrOfKeysCreated]->active = true;
+        keyEntryTable[nrOfKeysCreated]->addressOfKeyInpage = (mappedRegion + mappedRegionOffset);
+        keyEntryTable[nrOfKeysCreated]->id = nrOfKeysCreated;
+        ++nrOfKeysCreated;
+        mappedRegionOffset += keyLen;
+    }
 }
 
-int decrypt_data(const uint8_t *ciphertext, size_t ciphertext_len,
-                 const uint8_t *key, const uint8_t *iv,
-                 const uint8_t *tag, uint8_t *plaintext) {
+uint16_t GetNrOfKeys()
+{
+    return nrOfKeysCreated;
+}
+
+/*
+ * Encrypt plaintext -> ciphertext using AES-GCM.
+ * - plaintext_len: bytes of plaintext
+ * - ciphertext: output buffer (must be at least plaintext_len bytes)
+ * - tag: output buffer for tag (must be at least 16 bytes)
+ *
+ * Returns ciphertext length on success (== plaintext_len), or -1 on error.
+ */
+int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
+                CipherEnvelope* inEnvelope)//, bool isNewKeyNeeded = false)
+{
+    if (!plaintext || !inEnvelope) return -1;
+
+    for(uint16_t keyIndex = keyIndexToBeUsed; keyIndex < nrOfKeysCreated; keyIndex = (keyIndex + 1) % nrOfKeysCreated)
+    {
+        //  Modulus nrOfKeysCreated because we use round robin for encryption.
+        if(keyEntryTable[keyIndex] && keyEntryTable[keyIndex]->active)
+        {
+            keyIndexToBeUsed = keyIndex;
+            break;
+        }
+    }
+    inEnvelope->keyId = keyIndexToBeUsed;
+
+    //  Dereference can be done since we checked above that this is legit index.
+    const uint8_t *key = keyEntryTable[keyIndexToBeUsed]->addressOfKeyInpage;
+    size_t keyLen = keyEntryTable[keyIndexToBeUsed]->keyLen;
+    keyIndexToBeUsed = (keyIndexToBeUsed + 1) % nrOfKeysCreated;
+
+    const EVP_CIPHER *cipher = (keyLen == 16) ? EVP_aes_128_gcm() : EVP_aes_256_gcm();
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int len, plaintext_len = 0, ret;
+    if (!ctx) return -1;
 
-    EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL);
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
-    EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv);
+    int ret = -1;
+    int len = 0;
+    int outlen = 0;
 
-    EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
-    plaintext_len = len;
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void *)tag);
-    ret = EVP_DecryptFinal_ex(ctx, plaintext + len, &len);
+    if (1 != EVP_EncryptInit_ex(ctx, cipher, NULL, NULL, NULL)) goto cleanup;
+    if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
+    if (1 != EVP_EncryptInit_ex(ctx, NULL, NULL, key, inEnvelope->iv)) goto cleanup;
+
+    if (plaintext_len > 0) {
+        if (1 != EVP_EncryptUpdate(ctx, inEnvelope->ciphertext, &len, plaintext, (int)plaintext_len)) goto cleanup;
+        outlen = len;
+    } else {
+        outlen = 0;
+    }
+
+    if (1 != EVP_EncryptFinal_ex(ctx, inEnvelope->ciphertext + outlen, &len)) goto cleanup;
+    outlen += len;
+
+    /* Get tag (default 16 bytes). If you want a different tag size, set it via EVP_CIPHER_CTX_ctrl */
+    if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, ENVELOPE_TAG_LEN, inEnvelope->tag)) goto cleanup;
+
+    ret = outlen; /* success */
+
+cleanup:
     EVP_CIPHER_CTX_free(ctx);
+    return ret;
+}
 
-    if (ret > 0) return plaintext_len + len;
-    else return -1; // Decryption failed (tag mismatch)
+/*
+ * DecryptData: AES-GCM decrypt wrapper
+ *
+ * Inputs:
+ *  - Cipher Envelope input,
+ *  - plaintext: output buffer, 
+ *  - plaintextBufLen must be >= ciphertextLen
+ *
+ * Returns:
+ *  - plaintext length (== ciphertextLen) on success
+ *  - -2 on authentication failure (tag mismatch)
+ *  - -1 on other errors (invalid args, OpenSSL error, buffer too small)
+ */
+int DecryptData(const CipherEnvelope* inEnvelope,
+                uint8_t *plaintext, size_t plaintextBufLen)
+{
+    if (!inEnvelope || !plaintext) return -1;
+
+    const uint8_t *iv, *tag, *ciphertext, *key;
+    size_t ciphertextLen, keyLen;
+    uint32_t keyId;
+
+    iv = inEnvelope->iv;
+    tag = inEnvelope->tag;
+    ciphertext = inEnvelope->ciphertext;
+    ciphertextLen = inEnvelope->ciphertextLen;
+    keyId = inEnvelope->keyId;
+
+    key = keyEntryTable[keyId]->addressOfKeyInpage;
+    keyLen = keyEntryTable[keyId]->keyLen;
+
+    if (ciphertextLen > plaintextBufLen) return -1;
+    if (ciphertextLen > (size_t)INT_MAX) return -1; // safe casting
+
+    const EVP_CIPHER *cipher = (keyLen == 16) ? EVP_aes_128_gcm() : EVP_aes_256_gcm();
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return -1;
+
+    int ret = -1;
+    int len = 0;
+    int outlen = 0;
+    int rv;
+
+    if (1 != EVP_DecryptInit_ex(ctx, cipher, NULL, NULL, NULL)) goto cleanup;
+    if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
+    if (1 != EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv)) goto cleanup;
+
+    /* ciphertext -> plaintext */
+    if (ciphertextLen > 0) {
+        if (1 != EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, (int)ciphertextLen)) goto cleanup;
+        outlen = len;
+    } else {
+        outlen = 0;
+    }
+
+    /* set expected tag value before finalizing */
+    if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, ENVELOPE_TAG_LEN, (void *)tag)) goto cleanup;
+
+    /* Finalize — returns 1 if tag valid, 0 if tag invalid */
+    rv = EVP_DecryptFinal_ex(ctx, plaintext + outlen, &len);
+    if (rv > 0) {
+        outlen += len;
+        ret = outlen; /* success */
+    } else {
+        /* authentication failed */
+        ret = -2;
+    }
+
+cleanup:
+    EVP_CIPHER_CTX_free(ctx);
+    return ret;
+}
+
+int TrustedInit()
+{
+    size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
+    for(uint16_t pageIndex = 0; pageIndex < initialNrOfKeyPages; ++pageIndex)
+    {
+        size_t keyLen = (pageIndex % 2) ? aes128KeyLen : aes256KeyLen; // Using AES-128 for even and 256 for odd indexed pages.
+        uint16_t nrOfKeys = 1 + pageIndex % 16; //  For now, using this to assign pageIndex % 16 keys to page indexed at pageIndex
+        uint32_t maxKeyCapForThisPage = pageSize/keyLen;
+        uint8_t* mappedRegion;
+        uint32_t mappedRegionOffset = 0;
+
+        //  mmap one page
+        mappedRegion = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  //  We will protect this page using libMPK later.
+
+        if (mappedRegion == MAP_FAILED)
+        {
+            perror("mmap");
+            return 1;
+        }
+
+        if(nrOfKeys > maxKeyCapForThisPage)
+        {
+            nrOfKeys = maxKeyCapForThisPage;
+        }
+
+        GenerateKeys(mappedRegion, nrOfKeys, keyLen, mappedRegionOffset);
+    }
+    
+    return 0;
 }

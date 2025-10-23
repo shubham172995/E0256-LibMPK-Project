@@ -1,62 +1,10 @@
 #include "trusted_crypto.h"
 #include "utilities.h"
-#include <stdio.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdbool.h>
-#include <stdlib.h>
+#include "envelope.h"
 
-const size_t tagSize = 16;  //  Using full sized tag.
-const size_t ivSize = 12;   //  Using 12 Bytes of IV size recommended by NIST.
+
 const size_t msgLen = 64;   //  Plaintext will be 64B for now.
-const size_t nrOfMsgs = 100; //  nrOfKeys is 16 for now. Using a non-multiple  of 16 to handle asymmetry.
-
-
-
-typedef struct {
-    uint32_t keyId;            // which key was used (not secret)
-    uint8_t iv[ivSize];             // nonce used (not secret)
-    uint8_t tag[tagSize];            // authentication tag (MAC)
-    uint8_t *ciphertext;        // pointer to ciphertext buffer
-    size_t ciphertextLen;      // ciphertext length (same as plaintext)
-} CipherEnvelope;
-
-/*
-    Generates multiple keys for our purpose.
-*/
-void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset)
-{
-    for(uint32_t keyIndex = 0; keyIndex < nrOfKeys; ++keyIndex)
-    {
-        //  Using this to make sure that keys are unique.
-        while(true)
-        {
-            bool uniqueFound = true;
-            generate_key(mappedRegion + mappedRegionOffset, keyLen);
-
-            if(CheckZeroBytes(mappedRegion + mappedRegionOffset, keyLen))
-            {
-                //  returns true if bytes are 0.
-                continue;
-            }
-
-            for (size_t off = 0; off < mappedRegionOffset; off += keyLen) {
-                uint8_t *existing = mappedRegion + off; //  'existing' points to the page. Check once that MPK should protect this read.
-                if (memcmp((mappedRegion + mappedRegionOffset), existing, keyLen) == 0) {
-                    uniqueFound = false;
-                    break;
-                }
-            }
-            if(uniqueFound)
-            {
-                break;
-            }
-        }
-        mappedRegionOffset += keyLen;
-    }
-}
+const size_t nrOfMsgs = 100; //  currentNrOfKeys is 16 for now. Using a non-multiple  of 16 to handle asymmetry.
 
 /*
     ****************************************************** TO DO ******************************************************
@@ -73,31 +21,20 @@ void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint3
     Can also take user input for whether to use AES-128 or AES-256.
 */
 
+void GenerateIV(uint8_t *iv, size_t ivLen) {
+    if (RAND_bytes(iv, ivLen) != 1) {
+        fprintf(stderr, "Error generating random IV\n");
+    }
+}
+
 int main() {
-    size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
-    size_t keyLen = aes128KeyLen; // Using AES-128
-    uint16_t nrOfKeys = 16; //  Will use user provided arg if required. For now, use this.
-    uint32_t maxNrOfKeys = pageSize/keyLen;
-    uint8_t* mappedRegion;
-    uint32_t mappedRegionOffset = 0;
-    char** msgs = malloc(nrOfMsgs * sizeof(char*));  // fixed-size 2D array.
-    CipherEnvelope **cipherEnvelope = malloc(nrOfMsgs * sizeof(*cipherEnvelope));
-
-    //  mmap one page
-    mappedRegion = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  //  We will protect this page using libMPK later.
-
-    if (mappedRegion == MAP_FAILED)
+    if(TrustedInit())
     {
-        perror("mmap");
+        printf("Init failed. Check if mmap failed.\n");
         return 1;
     }
-
-    if(nrOfKeys > maxNrOfKeys)
-    {
-        nrOfKeys = maxNrOfKeys;
-    }
-
-    GenerateKeys(mappedRegion, nrOfKeys, keyLen, mappedRegionOffset);
+    char** msgs = malloc(nrOfMsgs * sizeof(char*));  // fixed-size 2D array.
+    CipherEnvelope **cipherEnvelope = malloc(nrOfMsgs * sizeof(*cipherEnvelope));
 
     for (uint32_t msgIndex = 0; msgIndex < nrOfMsgs; ++msgIndex) 
     {
@@ -120,15 +57,14 @@ int main() {
     for (uint32_t msgIndex = 0; msgIndex < nrOfMsgs; ++msgIndex)
     {
         cipherEnvelope[msgIndex] = malloc(sizeof(CipherEnvelope));
-        cipherEnvelope[msgIndex]->keyId = msgIndex % nrOfKeys;
-        cipherEnvelope[msgIndex]->ciphertextLen = sizeof(msgs[msgIndex]); 
+        cipherEnvelope[msgIndex]->ciphertextLen = strlen(msgs[msgIndex]); 
 
         //  Using a random IV. The loop ensure unniqueness.
         //  Using this to make sure that IVs are unique.
         while(true)
         {
             bool uniqueFound = true;
-            generate_key(cipherEnvelope[msgIndex]->iv, sizeof(cipherEnvelope[msgIndex]->iv)); // reusing RAND_bytes wrapper for initializing IV as well.
+            GenerateIV(cipherEnvelope[msgIndex]->iv, sizeof(cipherEnvelope[msgIndex]->iv)); // using RAND_bytes wrapper for initializing IV as well.
 
             if(CheckZeroBytes(cipherEnvelope[msgIndex]->iv, sizeof(cipherEnvelope[msgIndex]->iv)))
             {
@@ -149,9 +85,10 @@ int main() {
         }
 
         cipherEnvelope[msgIndex]->ciphertext = (uint8_t*)malloc(cipherEnvelope[msgIndex]->ciphertextLen);
-        cipherEnvelope[msgIndex]->ciphertextLen = encrypt_data((uint8_t*)msgs[msgIndex], strlen(msgs[msgIndex]), (mappedRegion + (msgIndex % nrOfKeys)*keyLen), cipherEnvelope[msgIndex]->iv, cipherEnvelope[msgIndex]->ciphertext, cipherEnvelope[msgIndex]->tag);
-        uint8_t* decrypted = (uint8_t*) malloc(cipherEnvelope[msgIndex]->ciphertextLen + 1);
-        uint32_t decryptedLen = decrypt_data(cipherEnvelope[msgIndex]->ciphertext, cipherEnvelope[msgIndex]->ciphertextLen, (mappedRegion + (msgIndex % nrOfKeys)*keyLen), cipherEnvelope[msgIndex]->iv, cipherEnvelope[msgIndex]->tag, decrypted);
+        cipherEnvelope[msgIndex]->ciphertextLen = EncryptData((uint8_t*)msgs[msgIndex], strlen(msgs[msgIndex]), cipherEnvelope[msgIndex]);
+        uint32_t expectedDecryptedLen = cipherEnvelope[msgIndex]->ciphertextLen + 1;
+        uint8_t* decrypted = (uint8_t*) malloc(expectedDecryptedLen);
+        uint32_t decryptedLen = DecryptData(cipherEnvelope[msgIndex], decrypted, expectedDecryptedLen);
         decrypted[decryptedLen] = '\0';
         
         printf("Original: %s\n", msgs[msgIndex]);
@@ -159,9 +96,27 @@ int main() {
         free(decrypted);
     }
 
-    //  Cleanup
-    memset(mappedRegion, 0, keyLen);
-    munmap(mappedRegion, pageSize);
+    //  Testing that a particular message with different key id fails.
+    printf("\n\nRetesting for sanity\n");
+    
+    printf("\n\n\nAdding a negative testcase that tells that message encrypted with other key cannot decrypt it back\n");
+    printf("Original: %s\n", msgs[6]);
+    cipherEnvelope[6]->keyId = cipherEnvelope[6]->keyId + 2;
+    uint32_t expectedDecryptedLen = cipherEnvelope[6]->ciphertextLen + 1;
+    uint8_t* decrypted = (uint8_t*) malloc(expectedDecryptedLen);
+    uint32_t decryptedLen = DecryptData(cipherEnvelope[6], decrypted, expectedDecryptedLen);
+    printf("Decrypted Len : %d and Expected : %u\n", decryptedLen, expectedDecryptedLen);
+    printf("Decrypted: %s\n", decrypted);
+    free(decrypted);
+
+    printf("\n\nTrying again with fixed key ID\n");
+    printf("Original: %s\n", msgs[6]);
+    cipherEnvelope[6]->keyId = cipherEnvelope[6]->keyId - 2;
+    decrypted = (uint8_t*) malloc(expectedDecryptedLen);
+    decryptedLen = DecryptData(cipherEnvelope[6], decrypted, expectedDecryptedLen);
+    printf("Decrypted Len : %d and Expected : %u\n", decryptedLen, expectedDecryptedLen);
+    printf("Decrypted: %s\n", decrypted);
+    free(decrypted);
 
      // Free
     for (uint32_t i = 0; i < nrOfMsgs; ++i) 
