@@ -22,6 +22,8 @@ typedef struct {
     void *addressOfKeyInpage;          // mmap'd page pointer holding the key bytes
     size_t keyLen;
     bool active;
+    uint16_t nrOfIVs;
+    uint8_t* arrayOfIVs;    //  12 bytes of IV. This points to (nrOfIVs) of IVs.
     /*
     int pkey;            // pkey id or -1. To be used after MPK is incorporated.
     uint64_t seq_ctr;    // nonce counter
@@ -47,11 +49,13 @@ static const size_t maxNrOfKeysPerPage  = 32;   //  To be used later. For now, 1
 int TrustedInit();
 
 // Generate random AES key (128-bit)
-void GenerateKey(uint8_t *key, size_t key_len);
+int GenerateKey(uint8_t *key, size_t key_len);
 
 uint16_t GetNrOfKeys();
 
 void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset);
+
+int GenerateIVForKeyIndex(uint16_t keyIndexToBeUsed);
 
 // AES-GCM encrypt/decrypt
 int EncryptData(const uint8_t *plaintext, size_t plaintext_len,

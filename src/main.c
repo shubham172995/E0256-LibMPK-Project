@@ -21,12 +21,6 @@ const size_t nrOfMsgs = 100; //  currentNrOfKeys is 16 for now. Using a non-mult
     Can also take user input for whether to use AES-128 or AES-256.
 */
 
-void GenerateIV(uint8_t *iv, size_t ivLen) {
-    if (RAND_bytes(iv, ivLen) != 1) {
-        fprintf(stderr, "Error generating random IV\n");
-    }
-}
-
 int main() {
     if(TrustedInit())
     {
@@ -59,31 +53,6 @@ int main() {
         cipherEnvelope[msgIndex] = malloc(sizeof(CipherEnvelope));
         cipherEnvelope[msgIndex]->ciphertextLen = strlen(msgs[msgIndex]); 
 
-        //  Using a random IV. The loop ensure unniqueness.
-        //  Using this to make sure that IVs are unique.
-        while(true)
-        {
-            bool uniqueFound = true;
-            GenerateIV(cipherEnvelope[msgIndex]->iv, sizeof(cipherEnvelope[msgIndex]->iv)); // using RAND_bytes wrapper for initializing IV as well.
-
-            if(CheckZeroBytes(cipherEnvelope[msgIndex]->iv, sizeof(cipherEnvelope[msgIndex]->iv)))
-            {
-                //  returns true if bytes are 0.
-                continue;
-            }
-
-            for (size_t off = 0; off < msgIndex; ++off) {
-                if (memcmp(cipherEnvelope[msgIndex]->iv, cipherEnvelope[off]->iv, sizeof(cipherEnvelope[msgIndex]->iv)) == 0) {
-                    uniqueFound = false;
-                    break;
-                }
-            }
-            if(uniqueFound)
-            {
-                break;
-            }
-        }
-
         cipherEnvelope[msgIndex]->ciphertext = (uint8_t*)malloc(cipherEnvelope[msgIndex]->ciphertextLen);
         cipherEnvelope[msgIndex]->ciphertextLen = EncryptData((uint8_t*)msgs[msgIndex], strlen(msgs[msgIndex]), cipherEnvelope[msgIndex]);
         uint32_t expectedDecryptedLen = cipherEnvelope[msgIndex]->ciphertextLen + 1;
@@ -98,7 +67,7 @@ int main() {
 
     //  Testing that a particular message with different key id fails.
     printf("\n\nRetesting for sanity\n");
-    
+
     printf("\n\n\nAdding a negative testcase that tells that message encrypted with other key cannot decrypt it back\n");
     printf("Original: %s\n", msgs[6]);
     cipherEnvelope[6]->keyId = cipherEnvelope[6]->keyId + 2;

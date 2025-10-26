@@ -4,10 +4,22 @@ static keyEntry* keyEntryTable[8192];  //  Maximum number of keys is 8192. 32 (p
 static size_t keyIndexToBeUsed = 0;
 static size_t nrOfKeysCreated = 0;
 
-void GenerateKey(uint8_t *key, size_t keyLen) {
+int GenerateKey(uint8_t *key, size_t keyLen) 
+{
     if (RAND_bytes(key, keyLen) != 1) {
         fprintf(stderr, "Error generating random key\n");
+        return -1;
     }
+    return 1;
+}
+
+int GenerateIV(uint8_t *iv, size_t ivLen) 
+{
+    if (RAND_bytes(iv, ivLen) != 1) {
+        fprintf(stderr, "Error generating random IV\n");
+        return -1;
+    }
+    return 1;
 }
 
 /*
@@ -15,13 +27,21 @@ void GenerateKey(uint8_t *key, size_t keyLen) {
 */
 void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset)
 {
+    /*
+        ****************************************************** TO DO ******************************************************
+
+        Add IV generation per key.
+    */
     for(uint32_t keyIndex = 0; keyIndex < nrOfKeys; ++keyIndex)
     {
         //  Using this to make sure that keys are unique.
         while(true)
         {
             bool uniqueFound = true;
-            GenerateKey(mappedRegion + mappedRegionOffset, keyLen);
+            if(-1 == GenerateKey(mappedRegion + mappedRegionOffset, keyLen))
+            {
+                continue;
+            }
 
             if(CheckZeroBytes(mappedRegion + mappedRegionOffset, keyLen))
             {
@@ -63,6 +83,7 @@ void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint3
         keyEntryTable[nrOfKeysCreated]->active = true;
         keyEntryTable[nrOfKeysCreated]->addressOfKeyInpage = (mappedRegion + mappedRegionOffset);
         keyEntryTable[nrOfKeysCreated]->id = nrOfKeysCreated;
+        keyEntryTable[nrOfKeysCreated]->nrOfIVs = 0;
         ++nrOfKeysCreated;
         mappedRegionOffset += keyLen;
     }
@@ -71,6 +92,54 @@ void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint3
 uint16_t GetNrOfKeys()
 {
     return nrOfKeysCreated;
+}
+
+int GenerateIVForKeyIndex(uint16_t keyIndexToBeUsed)
+{
+    uint16_t nrOfIVs = keyEntryTable[keyIndexToBeUsed]->nrOfIVs;
+    uint8_t* newArrayOfIVs = realloc(keyEntryTable[keyIndexToBeUsed]->arrayOfIVs, (nrOfIVs + 1) * ENVELOPE_IV_LEN); 
+
+    if(!newArrayOfIVs)
+    {
+        return -1;
+    }
+
+    keyEntryTable[keyIndexToBeUsed]->arrayOfIVs = newArrayOfIVs;
+
+    uint8_t* iv = keyEntryTable[keyIndexToBeUsed]->arrayOfIVs + (nrOfIVs * ENVELOPE_IV_LEN);
+
+    //  Using a random IV. The loop ensure unniqueness.
+    //  Using this to make sure that IVs are unique.
+    while(true)
+    {
+        bool uniqueFound = true;
+        if(-1 == GenerateIV(iv, ENVELOPE_IV_LEN)) // using RAND_bytes wrapper for initializing IV as well.
+        {
+            continue;
+        }
+
+        if(CheckZeroBytes(iv, ENVELOPE_IV_LEN))
+        {
+            //  returns true if bytes are 0.
+            continue;
+        }
+
+        for (size_t off = 0; off < nrOfIVs; ++off) 
+        {
+            uint8_t *existing = keyEntryTable[keyIndexToBeUsed]->arrayOfIVs + (off * ENVELOPE_IV_LEN);
+            if (memcmp(iv, existing, ENVELOPE_IV_LEN) == 0) {
+                uniqueFound = false;
+                break;
+            }
+        }
+        if(uniqueFound)
+        {
+            break;
+        }
+    }
+    ++(keyEntryTable[keyIndexToBeUsed]->nrOfIVs)
+    ;
+    return 1;
 }
 
 /*
@@ -96,11 +165,15 @@ int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
         }
     }
     inEnvelope->keyId = keyIndexToBeUsed;
+    if(-1 == GenerateIVForKeyIndex(keyIndexToBeUsed))
+    {
+        printf("realloc failed for allocating space for a new IV corresponding to this key\n");
+        return -1;
+    }
 
     //  Dereference can be done since we checked above that this is legit index.
     const uint8_t *key = keyEntryTable[keyIndexToBeUsed]->addressOfKeyInpage;
     size_t keyLen = keyEntryTable[keyIndexToBeUsed]->keyLen;
-    keyIndexToBeUsed = (keyIndexToBeUsed + 1) % nrOfKeysCreated;
 
     const EVP_CIPHER *cipher = (keyLen == 16) ? EVP_aes_128_gcm() : EVP_aes_256_gcm();
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -109,6 +182,8 @@ int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
     int ret = -1;
     int len = 0;
     int outlen = 0;
+    uint8_t* iv = keyEntryTable[keyIndexToBeUsed]->arrayOfIVs + (ENVELOPE_IV_LEN * (keyEntryTable[keyIndexToBeUsed]->nrOfIVs - 1));
+    memcpy(inEnvelope->iv, iv, ENVELOPE_IV_LEN);
 
     if (1 != EVP_EncryptInit_ex(ctx, cipher, NULL, NULL, NULL)) goto cleanup;
     if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
@@ -128,6 +203,7 @@ int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
     if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, ENVELOPE_TAG_LEN, inEnvelope->tag)) goto cleanup;
 
     ret = outlen; /* success */
+    keyIndexToBeUsed = (keyIndexToBeUsed + 1) % nrOfKeysCreated;
 
 cleanup:
     EVP_CIPHER_CTX_free(ctx);
