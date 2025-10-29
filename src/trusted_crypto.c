@@ -197,7 +197,7 @@ int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
     if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
 
     //  Enable access to the page in which this key is stored.
-    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, 0) == -1) 
+    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, PKEY_DISABLE_WRITE) == -1) 
     { 
         perror("pkey_set(enable)"); 
         return -1;
@@ -280,7 +280,7 @@ int DecryptData(const CipherEnvelope* inEnvelope,
     if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
 
     //  Enable access to the page in which this key is stored.
-    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, 0) == -1) 
+    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, PKEY_DISABLE_WRITE) == -1) 
     { 
         perror("pkey_set(enable)"); 
         return -1;
