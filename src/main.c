@@ -99,6 +99,7 @@ int main() {
     }
     free(cipherEnvelope);
     free(msgs);
+    ClearMappedPages();
 
     return 0;
 }

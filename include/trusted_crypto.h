@@ -64,4 +64,6 @@ int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
 int DecryptData(const CipherEnvelope* inEnvelope,
                 uint8_t *plaintext, size_t plaintextBufLen);
 
+void ClearMappedPages();
+
 #endif

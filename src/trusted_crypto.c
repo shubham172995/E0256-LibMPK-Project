@@ -3,6 +3,7 @@
 static keyEntry* keyEntryTable[8192];  //  Maximum number of keys is 8192. 32 (per page) * 256 (nr of pages).
 static size_t keyIndexToBeUsed = 0;
 static size_t nrOfKeysCreated = 0;
+static uint8_t* mappedPageAddresses[256];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
 
 int GenerateKey(uint8_t *key, size_t keyLen) 
 {
@@ -291,13 +292,12 @@ int TrustedInit()
         size_t keyLen = (pageIndex % 2) ? aes128KeyLen : aes256KeyLen; // Using AES-128 for even and 256 for odd indexed pages.
         uint16_t nrOfKeys = 1 + pageIndex % 16; //  For now, using this to assign pageIndex % 16 keys to page indexed at pageIndex
         uint32_t maxKeyCapForThisPage = pageSize/keyLen;
-        uint8_t* mappedRegion;
         uint32_t mappedRegionOffset = 0;
 
         //  mmap one page
-        mappedRegion = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  //  We will protect this page using libMPK later.
+        mappedPageAddresses[pageIndex] = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  //  We will protect this page using libMPK later.
 
-        if (mappedRegion == MAP_FAILED)
+        if (mappedPageAddresses[pageIndex] == MAP_FAILED)
         {
             perror("mmap");
             return 1;
@@ -308,8 +308,17 @@ int TrustedInit()
             nrOfKeys = maxKeyCapForThisPage;
         }
 
-        GenerateKeys(mappedRegion, nrOfKeys, keyLen, mappedRegionOffset);
+        GenerateKeys(mappedPageAddresses[pageIndex], nrOfKeys, keyLen, mappedRegionOffset);
     }
     
     return 0;
+}
+
+void ClearMappedPages()
+{
+    size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
+    for(uint16_t pageIndex = 0; pageIndex < initialNrOfKeyPages; ++pageIndex)
+    {
+        munmap(mappedPageAddresses[pageIndex], pageSize);
+    }
 }
