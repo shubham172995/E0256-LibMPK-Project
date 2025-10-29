@@ -291,7 +291,7 @@ int TrustedInit()
     for(uint16_t pageIndex = 0; pageIndex < initialNrOfKeyPages; ++pageIndex)
     {
         size_t keyLen = (pageIndex % 2) ? aes128KeyLen : aes256KeyLen; // Using AES-128 for even and 256 for odd indexed pages.
-        uint16_t nrOfKeys = 1 + pageIndex % 16; //  For now, using this to assign pageIndex % 16 keys to page indexed at pageIndex
+        uint16_t nrOfKeys = 1 + (pageIndex % 16); //  For now, using this to assign 1 + (pageIndex % 16) keys to page indexed at pageIndex
         uint32_t maxKeyCapForThisPage = pageSize/keyLen;
         uint32_t mappedRegionOffset = 0;
 
