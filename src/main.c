@@ -83,6 +83,7 @@ int main() {
     cipherEnvelope[6]->keyId = cipherEnvelope[6]->keyId - 2;
     decrypted = (uint8_t*) malloc(expectedDecryptedLen);
     decryptedLen = DecryptData(cipherEnvelope[6], decrypted, expectedDecryptedLen);
+    decrypted[decryptedLen] = '\0';
     printf("Decrypted Len : %d and Expected : %u\n", decryptedLen, expectedDecryptedLen);
     printf("Decrypted: %s\n", decrypted);
     free(decrypted);
