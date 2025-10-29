@@ -32,7 +32,7 @@ int GenerateIV(uint8_t *iv, size_t ivLen)
 /*
     Generates multiple keys for our purpose.
 */
-void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset)
+void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset, int pkey)
 {
     /*
         ****************************************************** TO DO ******************************************************
@@ -91,6 +91,7 @@ void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint3
         keyEntryTable[nrOfKeysCreated]->addressOfKeyInpage = (mappedRegion + mappedRegionOffset);
         keyEntryTable[nrOfKeysCreated]->id = nrOfKeysCreated;
         keyEntryTable[nrOfKeysCreated]->nrOfIVs = 0;
+        keyEntryTable[nrOfKeysCreated]->pkey = pkey;
         ++nrOfKeysCreated;
         mappedRegionOffset += keyLen;
     }
@@ -194,7 +195,22 @@ int EncryptData(const uint8_t *plaintext, size_t plaintext_len,
 
     if (1 != EVP_EncryptInit_ex(ctx, cipher, NULL, NULL, NULL)) goto cleanup;
     if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
+
+    //  Enable access to the page in which this key is stored.
+    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, 0) == -1) 
+    { 
+        perror("pkey_set(enable)"); 
+        return -1;
+    }
+
     if (1 != EVP_EncryptInit_ex(ctx, NULL, NULL, key, inEnvelope->iv)) goto cleanup;
+
+    //  Disable access to the page in which this key is stored.
+    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, PKEY_DISABLE_ACCESS) == -1)
+    {
+        perror("pkey_set(disable)");   
+        return -1;
+    }
 
     if (plaintext_len > 0) {
         if (1 != EVP_EncryptUpdate(ctx, inEnvelope->ciphertext, &len, plaintext, (int)plaintext_len)) goto cleanup;
@@ -262,7 +278,22 @@ int DecryptData(const CipherEnvelope* inEnvelope,
 
     if (1 != EVP_DecryptInit_ex(ctx, cipher, NULL, NULL, NULL)) goto cleanup;
     if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ENVELOPE_IV_LEN, NULL)) goto cleanup;
+
+    //  Enable access to the page in which this key is stored.
+    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, 0) == -1) 
+    { 
+        perror("pkey_set(enable)"); 
+        return -1;
+    }
+
     if (1 != EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv)) goto cleanup;
+
+    //  Disable access to the page in which this key is stored.
+    if (pkey_set(keyEntryTable[keyIndexToBeUsed]->pkey, PKEY_DISABLE_ACCESS) == -1)
+    {
+        perror("pkey_set(disable)");   
+        return -1;
+    }
 
     /* ciphertext -> plaintext */
     if (ciphertextLen > 0) {
@@ -345,7 +376,7 @@ int TrustedInit()
         else 
         {
             printf("pkey_set(%d,0): write enabled for this thread — writing...\n", pkey);
-            GenerateKeys(mappedPageAddresses[pageIndex], nrOfKeys, keyLen, mappedRegionOffset);               /* should succeed */
+            GenerateKeys(mappedPageAddresses[pageIndex], nrOfKeys, keyLen, mappedRegionOffset, pkey);               /* should succeed */
             printf("GenerateKeys() successful\n");
         }
         mappedPagePkeys[pageIndex] = pkey;

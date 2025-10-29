@@ -26,8 +26,8 @@ typedef struct {
     bool active;
     uint16_t nrOfIVs;
     uint8_t* arrayOfIVs;    //  12 bytes of IV. This points to (nrOfIVs) of IVs.
-    /*
     int pkey;            // pkey id or -1. To be used after MPK is incorporated.
+    /*
     uint64_t seq_ctr;    // nonce counter
     uint32_t flags;      // usage
     time_t created;
@@ -50,7 +50,7 @@ int GenerateKey(uint8_t *key, size_t key_len);
 
 uint16_t GetNrOfKeys();
 
-void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset);
+void GenerateKeys(uint8_t* mappedRegion, uint16_t nrOfKeys, size_t keyLen, uint32_t mappedRegionOffset, int pkey);
 
 int GenerateIVForKeyIndex(uint16_t keyIndexToBeUsed);
 
