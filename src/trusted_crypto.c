@@ -4,6 +4,7 @@ static keyEntry* keyEntryTable[8192];  //  Maximum number of keys is 8192. 32 (p
 static size_t keyIndexToBeUsed = 0;
 static size_t nrOfKeysCreated = 0;
 static uint8_t* mappedPageAddresses[256];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
+static int mappedPagePkeys[256];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
 
 int GenerateKey(uint8_t *key, size_t keyLen) 
 {
@@ -308,7 +309,54 @@ int TrustedInit()
             nrOfKeys = maxKeyCapForThisPage;
         }
 
-        GenerateKeys(mappedPageAddresses[pageIndex], nrOfKeys, keyLen, mappedRegionOffset);
+        /* allocate a protection key: initial rights mask PKEY_DISABLE_WRITE (example) */
+        int pkey = pkey_alloc(0, PKEY_DISABLE_ACCESS);
+        if (pkey == -1) 
+        { 
+            perror("pkey_alloc"); 
+            munmap(mappedPageAddresses[pageIndex], pageSize); 
+            return 1; 
+        }
+        //  printf("allocated pkey = %d\n", pkey);
+
+        /* attach the key to the VMA and set normal read+write permissions for the page */
+        if (pkey_mprotect(mappedPageAddresses[pageIndex], pageSize, PROT_READ | PROT_WRITE, pkey) == -1) {
+            perror("pkey_mprotect");
+            pkey_free(pkey);
+            munmap(mappedPageAddresses[pageIndex], pageSize);
+            return 1;
+        }
+        puts("attached pkey and set PROT_READ|PROT_WRITE");
+
+        /* At this point the page has R/W in page tables but the thread's PKRU
+        can disable write access for this pkey. Because we allocated the key
+        with PKEY_DISABLE_WRITE, the key starts with writes disabled. */
+
+        /* attempt to enable write for this thread (clear the disable flag) */
+        if (pkey_set(pkey, 0) == -1) 
+        { 
+            perror("pkey_set(enable)"); 
+        }
+        else 
+        {
+            printf("pkey_set(%d,0): write enabled for this thread — writing...\n", pkey);
+            GenerateKeys(mappedPageAddresses[pageIndex], nrOfKeys, keyLen, mappedRegionOffset);               /* should succeed */
+            printf("GenerateKeys() successful\n");
+            /* now re-disable write for this pkey in this thread */
+            if (pkey_set(pkey, PKEY_DISABLE_ACCESS) == -1)
+            {
+                perror("pkey_set(disable)");   
+            }
+            else 
+            {
+                puts("re-disabled write for this thread");
+            }
+        }
+        mappedPagePkeys[pageIndex] = pkey;
+
+        /* cleanup */
+        //munmap(p, pagesz);
+        //if (pkey_free(pkey) == -1) perror("pkey_free");
     }
     
     return 0;
