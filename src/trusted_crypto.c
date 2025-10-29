@@ -1,10 +1,15 @@
 #include "trusted_crypto.h"
 
-static keyEntry* keyEntryTable[8192];  //  Maximum number of keys is 8192. 32 (per page) * 256 (nr of pages).
+//  Defining these as this for now. We might change these later on.
+#define maxNrOfKeyPages      15   //  MPK supports 16 pages.
+#define initialNrOfKeyPages  12   //  Start with these many. Add more till max if needed.
+#define maxNrOfKeysPerPage   32   //  To be used later. For now, 1 page has 1 key.
+
+static keyEntry* keyEntryTable[maxNrOfKeysPerPage * maxNrOfKeyPages];  //  Maximum number of keys is 8192. 32 (per page) * 15 (max nr of pages).
 static size_t keyIndexToBeUsed = 0;
 static size_t nrOfKeysCreated = 0;
-static uint8_t* mappedPageAddresses[256];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
-static int mappedPagePkeys[256];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
+static uint8_t* mappedPageAddresses[maxNrOfKeyPages];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
+static int mappedPagePkeys[maxNrOfKeyPages];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
 
 int GenerateKey(uint8_t *key, size_t keyLen) 
 {
@@ -342,21 +347,20 @@ int TrustedInit()
             printf("pkey_set(%d,0): write enabled for this thread — writing...\n", pkey);
             GenerateKeys(mappedPageAddresses[pageIndex], nrOfKeys, keyLen, mappedRegionOffset);               /* should succeed */
             printf("GenerateKeys() successful\n");
-            /* now re-disable write for this pkey in this thread */
-            if (pkey_set(pkey, PKEY_DISABLE_ACCESS) == -1)
-            {
-                perror("pkey_set(disable)");   
-            }
-            else 
-            {
-                puts("re-disabled write for this thread");
-            }
         }
         mappedPagePkeys[pageIndex] = pkey;
-
-        /* cleanup */
-        //munmap(p, pagesz);
-        //if (pkey_free(pkey) == -1) perror("pkey_free");
+    }
+    /* now re-disable write for this pkey in this thread */
+    for(uint16_t pageIndex = 0; pageIndex < initialNrOfKeyPages; ++pageIndex)
+    {
+        if (pkey_set(mappedPagePkeys[pageIndex], PKEY_DISABLE_ACCESS) == -1)
+        {
+            perror("pkey_set(disable)");   
+        }
+        else 
+        {
+            puts("re-disabled write for this thread");
+        }
     }
     
     return 0;
@@ -368,5 +372,7 @@ void ClearMappedPages()
     for(uint16_t pageIndex = 0; pageIndex < initialNrOfKeyPages; ++pageIndex)
     {
         munmap(mappedPageAddresses[pageIndex], pageSize);
+        if (pkey_free(mappedPagePkeys[pageIndex]) == -1) 
+            perror("pkey_free");
     }
 }

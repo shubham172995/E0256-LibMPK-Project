@@ -39,11 +39,6 @@ typedef struct {
 static const size_t aes128KeyLen = 16;
 static const size_t aes256KeyLen = 32;
 
-//  Defining these as this for now. We might change these later on.
-static const size_t maxNrOfKeyPages     = 256;
-static const size_t initialNrOfKeyPages = 64;   //  Start with these many. Add more till max if needed.
-static const size_t maxNrOfKeysPerPage  = 32;   //  To be used later. For now, 1 page has 1 key.
-
 //  ****** TO DO ******* :- make this const and use properly.
 //const uint16_t nrOfKeys = 16; //  Will use user provided arg if required. For now, use this.
 
