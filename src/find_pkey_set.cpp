@@ -141,7 +141,7 @@ int main(int argc, char **argv)
         CreateAndInsertSnippet(app, points);
     }
 
-    finishInstrumenting(app, progName);
+    FinishInstrumenting(app, progName);
 
     std::cout << "Done.\n";
     return 0;
