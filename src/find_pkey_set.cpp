@@ -14,6 +14,8 @@
 #include <BPatch_function.h>
 #include <BPatch_module.h>
 
+BPatch bpatch;
+
 typedef enum 
 {
     create,
@@ -43,6 +45,7 @@ BPatch_addressSpace *StartInstrumenting(accessType_t accessType, const char *nam
     return handle;
 }
 
+/*
 void CreateAndInsertSnippet(BPatch_addressSpace *app, std::vector<BPatch_point *> *points) 
 {
     BPatch_image *appImage = app->getImage();
@@ -50,19 +53,28 @@ void CreateAndInsertSnippet(BPatch_addressSpace *app, std::vector<BPatch_point *
     BPatch_arithExpr addOne(BPatch_assign, *intCounter, BPatch_arithExpr(BPatch_plus, *intCounter, BPatch_constExpr(1)));
     app->insertSnippet(addOne, *points);
 }
+*/
 
 std::vector<BPatch_point *> *FindEntryPoint(BPatch_addressSpace *app, std::vector<BPatch_function *> &functions, bool &foundFn) 
 {
+    if(!app)
+    {
+        return nullptr;
+    }
     BPatch_image *appImage = app->getImage();
     if (!appImage) 
     {
         std::cerr << "Failed to get image\n";
-        return 3;
+        return nullptr;
     }
 
     std::vector<BPatch_point *> *points;
     foundFn = appImage->findFunction("pkey_set", functions);
-    points = functions[0]->findPoint(BPatch_entry);
+
+    if(foundFn && !functions.empty())
+    {
+        return nullptr;
+    }
     
     if (foundFn && !functions.empty()) 
     {
@@ -100,6 +112,42 @@ void FinishInstrumenting(BPatch_addressSpace *app, const char *newName)
     }
 }
 
+int binaryAnalysis(BPatch_addressSpace *app) 
+{
+    BPatch_image *appImage = app->getImage();
+    int insns_access_memory = 0;
+    std::vector<BPatch_function *> functions;
+    bool foundFn = appImage->findFunction("pkey_set", functions);
+
+    if(foundFn && !functions.empty())
+    {
+        return 0;
+    }
+
+    BPatch_flowGraph *fg = functions[0]->getCFG();
+    std::set<BPatch_basicBlock *> blocks;
+    fg->getAllBasicBlocks(blocks);
+    std::set<BPatch_basicBlock *>::iterator block_iter;
+
+    for (block_iter = blocks.begin(); block_iter != blocks.end(); ++block_iter)
+    {
+        BPatch_basicBlock *block = *block_iter;
+        std::vector<Dyninst::InstructionAPI::Instruction::Ptr> insns;
+        block->getInstructions(insns);
+        std::vector<Dyninst::InstructionAPI::Instruction::Ptr>::iterator
+        insn_iter;
+        for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter) 
+        {
+            Dyninst::InstructionAPI::Instruction::Ptr insn = *insn_iter;
+            if (insn->readsMemory() || insn->writesMemory()) 
+            {
+                insns_access_memory++;
+            }
+        }
+    }
+    return insns_access_memory;
+}
+
 
 int main(int argc, char **argv) 
 {
@@ -117,9 +165,9 @@ int main(int argc, char **argv)
 
     int mode = std::stoi(argv[2]);
     int pid = std::stoi(argv[3]);   //  Unless user wants to instrument running process, user gives -1.
-    BPatch bpatch; 
+
     const char *progArgv[] = {argv[1], "-h", NULL};
-    BPatch_addressSpace *app = StartInstrumenting(argv[2], bin, pid, progArgv);
+    BPatch_addressSpace *app = StartInstrumenting(static_cast<accessType_t>(mode), bin, pid, progArgv);
 
     /*
     BPatch_binaryEdit *app = bpatch.openBinary(bin, true);
@@ -136,12 +184,22 @@ int main(int argc, char **argv)
     bool foundFn = false;
     std::vector<BPatch_point *> *points = FindEntryPoint(app, functions, foundFn);
 
-    if(foundFn)
+/*
+    if(foundFn && !(*points).empty())
     {
         CreateAndInsertSnippet(app, points);
     }
+*/
 
     FinishInstrumenting(app, progName);
+
+    int insnsAccessMemory = 0;
+    if(foundFn && !functions.empty())
+    {
+        insnsAccessMemory = binaryAnalysis(app);
+    }
+
+    std::cout << "insnsAccessMemory = " << insnsAccessMemory << "\n";
 
     std::cout << "Done.\n";
     return 0;
