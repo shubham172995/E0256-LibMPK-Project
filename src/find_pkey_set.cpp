@@ -141,7 +141,7 @@ int binaryAnalysis(BPatch_addressSpace *app)
     fg->getAllBasicBlocks(blocks);
     for (auto *block : blocks)
     {
-        std::vector<boost::shared_ptr<Dyninst::InstructionAPI::Instruction>> insns;
+        std::vector<Dyninst::InstructionAPI::Instruction> insns;
         block->getInstructions(insns);
 
         for (auto &insn : insns)
