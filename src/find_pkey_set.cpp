@@ -5,6 +5,10 @@
 //  g++ -std=c++11 find_pkey_set.cpp   -I"$PREFIX/include" -I"$PREFIX/include/dyninstAPI"   -L"$PREFIX/lib"   -ldyninstAPI -linstructionAPI -lparseAPI -lsymtabAPI -ldw -ldwfl   -o find_pkey
 // This program detects if the binary imports or defines 'pkey_set' (or other pkey_* symbols)
 
+#include <dyninstversion.h>
+#pragma message "Dyninst version: " DYNINST_VERSION_STRING
+
+
 #include <iostream>
 #include <vector>
 #include <string>
