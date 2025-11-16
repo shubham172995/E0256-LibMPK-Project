@@ -33,3 +33,18 @@ For Phase-2, there is a file which uses Dyninst, "find_pkey_set.cpp".
     -o find_pkey
 
     ./find_pkey <Executable> <mode of running> <PID if it is a running process> <Path to libtrusted.so>
+
+THIS DID NOT WORK WITH STATIC BINARIES. I WAS UNABLE TO TEST FOR RUNNING BINARIES DUE TO NO SUDO ACCESS TO AMAZON-GPU SERVER.
+
+SO, RESORTED TO ANOTHER METHOD.
+
+After the make is done, do the following:
+
+1. Set an environment variable, 'ALLOW_PKEY_MODULE' which is used to contain libraries that can access the function pkey_set() legitimately as follows:
+    '$ export ALLOW_PKEY_MODULE=<Path to libtrusted.so>$
+2. Make a shared library of blocker file, 'block_pkey_set.c' as follows:
+    '$ gcc -shared -fPIC -O2 -o libblockpkey.so block_pkey_set.c -ldl'
+3. Test the applications.
+    eg. For an untrusted binary '$ LD_PRELOAD=<Path to libblockpkey.so> <executable>'
+    eg. For authorised case where proper use is made, for instance in the main file which comes with the zip when you do make,
+    '$  LD_PRELOAD=<Path to libblockpkey.so> <path to main inside the directory of project>'
