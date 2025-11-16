@@ -13,6 +13,9 @@
   -o find_pkey
 */
 
+/*
+    ./find_pkey E0256-LibMPK-Project/main 2 -1 /data4/home/shubhamshar1/e0256/E0256-LibMPK-Project/libtrusted.so
+*/
 // This program detects if the binary imports or defines 'pkey_set' (or other pkey_* symbols)
 
 
@@ -166,14 +169,21 @@ int binaryAnalysis(BPatch_addressSpace *app)
     return insns_access_memory;
 }
 
-void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath) 
+void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
 {
-    if(!app)
-    {
-        return;
-    }
+    if (!app) return;
 
-    app->loadLibrary(libTrustedPath);
+    // 1) Try to load replacement library into image/process
+    bool loaded = false;
+    if (libTrustedPath && libTrustedPath[0]) 
+    {
+        loaded = app->loadLibrary(libTrustedPath);
+        std::cerr << "loadLibrary(" << libTrustedPath << ") returned " << loaded << "\n";
+    } 
+    else 
+    {
+        std::cerr << "No lib path provided to loadLibrary()\n";
+    }
 
     BPatch_image *appImage = app->getImage();
     if (!appImage) 
@@ -182,41 +192,106 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
-    std::vector<BPatch_function*> pltFuncs;
+    // 2) Print modules for debugging
     std::vector<BPatch_module*> mods;
     appImage->getModules(mods);
-    for (auto *m : mods) {
-        m->findFunction("pkey_set", pltFuncs); // sometimes "pkey_set@plt" needed; try both
-        // pltFuncs[0] is the module's PLT stub or imported symbol
+    std::cerr << "Modules found: " << mods.size() << "\n";
+    for (auto *m : mods) 
+    {
+        std::cerr << "  module: " << m->getName() << "\n";
     }
 
-/*
-    std::vector<BPatch_function *> originalFunctions;
-    bool foundOrig = appImage->findFunction("pkey_set", originalFunctions);
-
-    if(!foundOrig || originalFunctions.empty())
+    // 3) Find replacement function (my_pkey_set) in the image
+    std::vector<BPatch_function*> replFuncs;
+    bool foundRepl = appImage->findFunction("my_pkey_set", replFuncs);
+    if (!foundRepl || replFuncs.empty()) 
     {
-        std::cerr << "pkey_set not found\n";
+        std::cerr << "my_pkey_set not found in image. Check loadLibrary or linking.\n";
+        // don't return yet — you might want to scan callsites and insert snippet-based wrapper instead
+        // return;
+    } 
+    else 
+    {
+        std::cerr << "Found my_pkey_set, address hint available\n";
+    }
+
+    // 4) Try to collect per-module orig functions (PLT/import stubs)
+    std::vector<BPatch_function*> origCandidates;
+    for (auto *m : mods) 
+    {
+        std::vector<BPatch_function*> modFuncs;
+        bool ok = m->findFunction("pkey_set", modFuncs);
+        if (ok && !modFuncs.empty()) 
+        {
+            std::cerr << "Module " << m->getName() << " exposes pkey_set (found " << modFuncs.size() << ")\n";
+            for (auto *f : modFuncs) {
+                if (f) {
+                    std::cerr << "   -> function: " << f->getName() << " module=" << f->getModule()->getName() << "\n";
+                    origCandidates.push_back(f);
+                }
+            }
+        }
+    }
+
+    // 5) If we found candidate orig functions, replace them
+    if (!origCandidates.empty() && !replFuncs.empty()) 
+    {
+        for (auto *orig : origCandidates) 
+        {
+            std::cerr << "Replacing orig function from module " << orig->getModule()->getName() << "\n";
+            app->replaceFunction(*orig, *replFuncs[0]);
+        }
+        std::cerr << "Replacement done for modules exposing pkey_set\n";
         return;
     }
-*/
 
-    std::vector<BPatch_function*> replacetemntFunctions;
-    bool foundRepl = appImage->findFunction("my_pkey_set", replacetemntFunctions);
+    // 6) FALLBACK: scan callsites in modules and instrument call instructions that target pkey_set@plt
+    // This is slower but works even when pkey_set has no visible symbol in the module.
+    std::cerr << "FALLBACK: scanning call instructions in modules to locate pkey_set callsites\n";
 
-    if (!foundRepl || replacetemntFunctions.empty()) 
+    // iterate functions in image
+    std::vector<BPatch_function*> allFuncs;
+    appImage->getProcedures(allFuncs); // getProcedures gives all functions/procedures
+    for (auto *f : allFuncs) 
     {
-        std::cerr << "my_pkey_set not found in image\n";
-        return;
+        if (!f) 
+            continue;
+        // get call points inside this function
+        std::vector<BPatch_point*> *callPoints = f->findPoint(BPatch_callInstruction);
+        if (!callPoints) continue;
+        for (auto *p : *callPoints) 
+        {
+            // getCalledFunctions is a convenience to see resolved callee BPatch_function*
+            BPatch_function *callees[4];
+            int nc = p->getCalledFunctions(callees, 4);
+            if (nc <= 0) continue;
+            for (int i = 0; i < nc; ++i) 
+            {
+                BPatch_function *callee = callees[i];
+                if (!callee) continue;
+                std::string nm = callee->getName();
+                if (nm.find("pkey_set") != std::string::npos) 
+                {
+                    std::cerr << "Found call to " << nm << " in function " << f->getName() << " — instrumenting\n";
+                    if (!replFuncs.empty()) 
+                    {
+                        // Insert a call to replacement BEFORE the original call and optionally skip original:
+                        app->insertSnippet(BPatch_funcCallExpr(*replFuncs[0]), *p, BPatch_callBefore);
+                        // If you want to avoid executing original, you must also modify the original call to be a NOP or return early.
+                        // That's advanced: consider replacing the instruction bytes or using an entry snippet that returns early.
+                    } 
+                    else 
+                    {
+                        std::cerr << "No replacement function available; skipping instrumentation\n";
+                    }
+                }
+            }
+        }
     }
 
-    for (auto *orig : pltFuncs) 
-    {
-        app->replaceFunction(*orig, *replacetemntFunctions[0]);
-    }
-
-    //app->replaceFunction(*originalFunctions[0], *replacetemntFunctions[0]);
+    std::cerr << "Fallback scanning complete\n";
 }
+
 
 
 int main(int argc, char **argv) 
