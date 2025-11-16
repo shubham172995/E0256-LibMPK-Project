@@ -13,7 +13,7 @@
   -o find_pkey
 */
 
-// This program detects if the binary imports or defines 'pkey_set' (or other pkey_* symbols)
+// This program detects if the binary imports or defines 'pkey_set@plt' (or other pkey_* symbols)
 
 
 #include <iostream>
@@ -86,11 +86,11 @@ std::vector<BPatch_point *> *FindEntryPoint(BPatch_addressSpace *app, std::vecto
     }
 
     std::vector<BPatch_point *> *points;
-    foundFn = appImage->findFunction("pkey_set", functions);
+    foundFn = appImage->findFunction("pkey_set@plt", functions);
     
     if (foundFn && !functions.empty()) 
     {
-        std::cout << "appImage->findFunction: found " << functions.size() << " function(s) named 'pkey_set'.\n";
+        std::cout << "appImage->findFunction: found " << functions.size() << " function(s) named 'pkey_set@plt'.\n";
         points = functions[0]->findPoint(BPatch_entry);
         for (auto *f : functions) 
         {
@@ -100,7 +100,7 @@ std::vector<BPatch_point *> *FindEntryPoint(BPatch_addressSpace *app, std::vecto
     } 
     else 
     {
-        std::cout << "appImage->findFunction: no function named 'pkey_set' found.\n";
+        std::cout << "appImage->findFunction: no function named 'pkey_set@plt' found.\n";
     }
 
     return points;
@@ -134,7 +134,7 @@ int binaryAnalysis(BPatch_addressSpace *app)
     BPatch_image *appImage = app->getImage();
     int insns_access_memory = 0;
     std::vector<BPatch_function *> functions;
-    bool foundFn = appImage->findFunction("pkey_set", functions);
+    bool foundFn = appImage->findFunction("pkey_set@plt", functions);
 
     if(!foundFn || functions.empty())
     {
@@ -166,12 +166,14 @@ int binaryAnalysis(BPatch_addressSpace *app)
     return insns_access_memory;
 }
 
-void InstrumentMemory(BPatch_addressSpace *app) 
+void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath) 
 {
     if(!app)
     {
         return;
     }
+
+    app->loadLibrary(libTrustedPath);
 
     BPatch_image *appImage = app->getImage();
     if (!appImage) 
@@ -181,11 +183,11 @@ void InstrumentMemory(BPatch_addressSpace *app)
     }
 
     std::vector<BPatch_function *> originalFunctions;
-    bool foundOrig = appImage->findFunction("pkey_set", originalFunctions);
+    bool foundOrig = appImage->findFunction("pkey_set@plt", originalFunctions);
 
     if(!foundOrig || originalFunctions.empty())
     {
-        std::cerr << "pkey_set not found\n";
+        std::cerr << "pkey_set@plt not found\n";
         return;
     }
 
@@ -204,12 +206,13 @@ void InstrumentMemory(BPatch_addressSpace *app)
 
 int main(int argc, char **argv) 
 {
-    if (argc != 4) 
+    if (argc != 5) 
     {
         std::cerr << "Usage: " << argv[0]
                 << " <binary>"
                 << " <mode: 0=create, 1=attach, 2=open>"
-                << " <pid: -1 if not attaching>\n";
+                << " <pid: -1 if not attaching>"
+                << " lib_trusted.so complete path\n";
         return 1;
     }
 
@@ -228,12 +231,12 @@ int main(int argc, char **argv)
     bool foundFn = false;
     std::vector<BPatch_point *> *points = FindEntryPoint(app, functions, foundFn);
 
-    InstrumentMemory(app);
+    InstrumentMemory(app, argv[4]);
 
     int insnsAccessMemory = 0;
     if(foundFn && !functions.empty())
     {
-        //  For my current purpose, to redirect pkey_set from untrusted to my_pkey_sey, I don't need this. But, adding for completeness and if needed in the future.
+        //  For my current purpose, to redirect pkey_set@plt from untrusted to my_pkey_sey, I don't need this. But, adding for completeness and if needed in the future.
         insnsAccessMemory = binaryAnalysis(app);
     }
 
