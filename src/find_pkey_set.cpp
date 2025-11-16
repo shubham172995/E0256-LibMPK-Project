@@ -182,10 +182,10 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
+    std::vector<BPatch_function*> pltFuncs;
     std::vector<BPatch_module*> mods;
     appImage->getModules(mods);
     for (auto *m : mods) {
-        std::vector<BPatch_function*> pltFuncs;
         m->findFunction("pkey_set", pltFuncs); // sometimes "pkey_set@plt" needed; try both
         // pltFuncs[0] is the module's PLT stub or imported symbol
     }
