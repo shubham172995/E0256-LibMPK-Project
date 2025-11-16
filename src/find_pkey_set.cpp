@@ -136,23 +136,20 @@ int binaryAnalysis(BPatch_addressSpace *app)
 
     std::set<BPatch_basicBlock *> blocks;
     fg->getAllBasicBlocks(blocks);
-    std::set<BPatch_basicBlock *>::iterator block_iter;
-
-    for (block_iter = blocks.begin(); block_iter != blocks.end(); ++block_iter)
+    for (auto *block : blocks)
     {
-        BPatch_basicBlock *block = *block_iter;
         std::vector<Dyninst::InstructionAPI::Instruction::Ptr> insns;
         block->getInstructions(insns);
-        std::vector<Dyninst::InstructionAPI::Instruction::Ptr>::iterator insn_iter;
-        for (insn_iter = insns.begin(); insn_iter != insns.end(); ++insn_iter) 
+
+        for (auto &insn : insns)
         {
-            Dyninst::InstructionAPI::Instruction::Ptr insn = *insn_iter;
             if (insn->readsMemory() || insn->writesMemory()) 
             {
                 insns_access_memory++;
             }
         }
     }
+
     return insns_access_memory;
 }
 
