@@ -13,7 +13,7 @@
   -o find_pkey
 */
 
-// This program detects if the binary imports or defines 'pkey_set@plt' (or other pkey_* symbols)
+// This program detects if the binary imports or defines 'pkey_set' (or other pkey_* symbols)
 
 
 #include <iostream>
@@ -86,11 +86,11 @@ std::vector<BPatch_point *> *FindEntryPoint(BPatch_addressSpace *app, std::vecto
     }
 
     std::vector<BPatch_point *> *points;
-    foundFn = appImage->findFunction("pkey_set@plt", functions);
+    foundFn = appImage->findFunction("pkey_set", functions);
     
     if (foundFn && !functions.empty()) 
     {
-        std::cout << "appImage->findFunction: found " << functions.size() << " function(s) named 'pkey_set@plt'.\n";
+        std::cout << "appImage->findFunction: found " << functions.size() << " function(s) named 'pkey_set'.\n";
         points = functions[0]->findPoint(BPatch_entry);
         for (auto *f : functions) 
         {
@@ -100,7 +100,7 @@ std::vector<BPatch_point *> *FindEntryPoint(BPatch_addressSpace *app, std::vecto
     } 
     else 
     {
-        std::cout << "appImage->findFunction: no function named 'pkey_set@plt' found.\n";
+        std::cout << "appImage->findFunction: no function named 'pkey_set' found.\n";
     }
 
     return points;
@@ -134,7 +134,7 @@ int binaryAnalysis(BPatch_addressSpace *app)
     BPatch_image *appImage = app->getImage();
     int insns_access_memory = 0;
     std::vector<BPatch_function *> functions;
-    bool foundFn = appImage->findFunction("pkey_set@plt", functions);
+    bool foundFn = appImage->findFunction("pkey_set", functions);
 
     if(!foundFn || functions.empty())
     {
@@ -182,14 +182,24 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
+    std::vector<BPatch_module*> mods;
+    appImage->getModules(mods);
+    for (auto *m : mods) {
+        std::vector<BPatch_function*> pltFuncs;
+        m->findFunction("pkey_set", pltFuncs); // sometimes "pkey_set@plt" needed; try both
+        // pltFuncs[0] is the module's PLT stub or imported symbol
+    }
+
+/*
     std::vector<BPatch_function *> originalFunctions;
-    bool foundOrig = appImage->findFunction("pkey_set@plt", originalFunctions);
+    bool foundOrig = appImage->findFunction("pkey_set", originalFunctions);
 
     if(!foundOrig || originalFunctions.empty())
     {
-        std::cerr << "pkey_set@plt not found\n";
+        std::cerr << "pkey_set not found\n";
         return;
     }
+*/
 
     std::vector<BPatch_function*> replacetemntFunctions;
     bool foundRepl = appImage->findFunction("my_pkey_set", replacetemntFunctions);
@@ -200,7 +210,12 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
-    app->replaceFunction(*originalFunctions[0], *replacetemntFunctions[0]);
+    for (auto *orig : pltFuncs) 
+    {
+        app->replaceFunction(*orig, *replacetemntFunctions[0]);
+    }
+
+    //app->replaceFunction(*originalFunctions[0], *replacetemntFunctions[0]);
 }
 
 
@@ -236,7 +251,7 @@ int main(int argc, char **argv)
     int insnsAccessMemory = 0;
     if(foundFn && !functions.empty())
     {
-        //  For my current purpose, to redirect pkey_set@plt from untrusted to my_pkey_sey, I don't need this. But, adding for completeness and if needed in the future.
+        //  For my current purpose, to redirect pkey_set from untrusted to my_pkey_sey, I don't need this. But, adding for completeness and if needed in the future.
         insnsAccessMemory = binaryAnalysis(app);
     }
 
