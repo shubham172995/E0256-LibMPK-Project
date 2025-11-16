@@ -1,6 +1,3 @@
-// Compile: g++ -std=c++11 find_pkey.cpp -I$PREFIX/include -L$PREFIX/lib -ldyninstAPI -linstructionAPI -lparseAPI -lsymtabAPI -ldw -ldwfl -o find_pkey
-// Adjust link flags to match your installed dyninst libs (PREFIX==/data4/home/..../opt)
-
 //  export PREFIX=/data4/home/shubhamshar1/opt
 
 /*
@@ -16,7 +13,6 @@
 /*
     ./find_pkey E0256-LibMPK-Project/main 2 -1 /data4/home/shubhamshar1/e0256/E0256-LibMPK-Project/libtrusted.so
 */
-// This program detects if the binary imports or defines 'pkey_set' (or other pkey_* symbols)
 
 
 #include <iostream>
@@ -173,7 +169,7 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
 {
     if (!app) return;
 
-    // 1) Try to load replacement library into image/process
+    // Try to load replacement library into image/process
     bool loaded = false;
     if (libTrustedPath && libTrustedPath[0]) 
     {
@@ -192,7 +188,7 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
-    // 2) Print modules for debugging
+    // Print modules for debugging
     std::vector<BPatch_module*> mods;
     appImage->getModules(mods);
     std::cerr << "Modules found: " << mods.size() << "\n";
@@ -201,21 +197,19 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         std::cerr << "  module: " << m->getName() << "\n";
     }
 
-    // 3) Find replacement function (my_pkey_set) in the image
+    // Find replacement function (my_pkey_set) in the image
     std::vector<BPatch_function*> replFuncs;
     bool foundRepl = appImage->findFunction("my_pkey_set", replFuncs);
     if (!foundRepl || replFuncs.empty()) 
     {
         std::cerr << "my_pkey_set not found in image. Check loadLibrary or linking.\n";
-        // don't return yet — you might want to scan callsites and insert snippet-based wrapper instead
-        // return;
     } 
     else 
     {
         std::cerr << "Found my_pkey_set, address hint available\n";
     }
 
-    // 4) Try to collect per-module orig functions (PLT/import stubs)
+    // Try to collect per-module orig functions (PLT/import stubs)
     std::vector<BPatch_function*> origCandidates;
     for (auto *m : mods) 
     {
@@ -233,7 +227,7 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         }
     }
 
-    // 5) If we found candidate orig functions, replace them
+    // If we found candidate orig functions, replace them
     if (!origCandidates.empty() && !replFuncs.empty()) 
     {
         for (auto *orig : origCandidates) 
@@ -245,7 +239,6 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
-    // 6) FALLBACK for older Dyninst: scan call instructions using BPatch_locInstruction + getCalledFunction()
 std::cerr << "FALLBACK: scanning call instructions (old Dyninst API)\n";
 
 std::vector<BPatch_function*> allFuncs;
@@ -265,7 +258,6 @@ for (auto *f : allFuncs)
         if (!p) 
             continue;
 
-        // Old API: only ONE callee can be retrieved
         BPatch_function *callee = p->getCalledFunction();
         if (!callee) continue;
 
@@ -278,15 +270,10 @@ for (auto *f : allFuncs)
 
             if (!replFuncs.empty()) 
             {
-                // old constructor: BPatch_funcCallExpr(func, args)
                 std::vector<BPatch_snippet*> emptyArgs;
                 BPatch_funcCallExpr callRepl(*replFuncs[0], emptyArgs);
 
-                // insert BEFORE the original call
                 app->insertSnippet(callRepl, *p, BPatch_callBefore);
-
-                // If you want to block the original call,
-                // you must also NOP the instruction (more advanced).
             }
         }
     }
