@@ -173,7 +173,7 @@ void InstrumentMemory(BPatch_addressSpace *app)
     std::vector<BPatch_function *> originalFunctions;
     bool foundOrig = appImage->findFunction("pkey_set", originalFunctions);
 
-    if(!foundOrig || functions.empty())
+    if(!foundOrig || originalFunctions.empty())
     {
         std::cerr << "pkey_set not found\n";
         return;
@@ -182,13 +182,13 @@ void InstrumentMemory(BPatch_addressSpace *app)
     std::vector<BPatch_function*> replacetemntFunctions;
     bool foundRepl = appImage->findFunction("my_pkey_set", replacetemntFunctions);
 
-    if (!foundRepl || functions.empty()) 
+    if (!foundRepl || replacetemntFunctions.empty()) 
     {
         std::cerr << "my_pkey_set not found in image\n";
         return;
     }
 
-    app->replaceFunction(*origFunc[0], *replFunc[0]);
+    app->replaceFunction(*originalFunctions[0], *replacetemntFunctions[0]);
 }
 
 
