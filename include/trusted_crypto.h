@@ -63,4 +63,6 @@ int DecryptData(const CipherEnvelope* inEnvelope,
 
 void ClearMappedPages();
 
+int my_pkey_set(int pkey, unsigned int rights);
+
 #endif

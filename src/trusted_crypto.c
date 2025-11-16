@@ -11,6 +11,12 @@ static size_t nrOfKeysCreated = 0;
 static uint8_t* mappedPageAddresses[maxNrOfKeyPages];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
 static int mappedPagePkeys[maxNrOfKeyPages];   //  This stores the starting addresses of mmap()'d pages. Helps when unmapping them.
 
+int my_pkey_set(int pkey, unsigned int rights)
+{
+    printf("pkey_set replaced! key=%d rights=%u\n", pkey, rights);
+    return 0;
+}
+
 int GenerateKey(uint8_t *key, size_t keyLen) 
 {
     if (RAND_bytes(key, keyLen) != 1) {
