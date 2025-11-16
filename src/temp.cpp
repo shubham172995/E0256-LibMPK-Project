@@ -128,12 +128,11 @@ int binaryAnalysis(BPatch_addressSpace *app)
 
     for (auto *block : blocks) {
         if (!block) continue;
-        std::vector<Dyninst::InstructionAPI::Instruction::Ptr> insns;
+        std::vector<Dyninst::InstructionAPI::Instruction> insns;
         block->getInstructions(insns); // fills vector of shared_ptr
-        for (auto &insnPtr : insns) {
-            if (!insnPtr) continue;
+        for (auto &insn : insns) {
             try {
-                if (insnPtr->readsMemory() || insnPtr->writesMemory()) {
+                if (insn.readsMemory() || insn.writesMemory()) {
                     insns_access_memory++;
                 }
             } catch (...) {
