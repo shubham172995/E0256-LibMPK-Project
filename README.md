@@ -50,6 +50,7 @@ After the make is done, do the following:
     '$  LD_PRELOAD=<Path to libblockpkey.so> <path to main inside the directory of project>'
 
 For example, go to src directory and compile a test file, '$ gcc test_for_pkey_untrusted.c -o test_pkey'
+Do '$ export ALLOW_PKEY_MODULE=<Path to libtrusted.so>'
 Do '$ gcc -shared -fPIC -O2 -o libblockpkey.so block_pkey_set.c -ldl'
 Do '$ export ALLOW_PKEY_MODULE=/data4/home/shubhamshar1/e0256/E0256-LibMPK-Project/libtrusted.so'
 Do '$ LD_PRELOAD=./libblockpkey.so ./test_pkey' -> This should fail.
