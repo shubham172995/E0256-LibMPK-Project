@@ -88,16 +88,6 @@ int main() {
     printf("Decrypted: %s\n", decrypted);
     free(decrypted);
 
-    //  TRY TO Enable access to the page in which this key is stored. Should fail.
-    if (pkey_set(cipherEnvelope[6]->keyId, 0) == 100) 
-    { 
-        printf("pkey_set was successfully replaced\n");
-    }
-    else
-    {
-        printf("pkey_set was NOT successfully replaced\n");
-    }
-
      // Free
     for (uint32_t i = 0; i < nrOfMsgs; ++i) 
     {
