@@ -48,3 +48,9 @@ After the make is done, do the following:
     eg. For an untrusted binary '$ LD_PRELOAD=<Path to libblockpkey.so> <executable>'
     eg. For authorised case where proper use is made, for instance in the main file which comes with the zip when you do make,
     '$  LD_PRELOAD=<Path to libblockpkey.so> <path to main inside the directory of project>'
+
+For example, go to src directory and compile a test file, '$ gcc test_for_pkey_untrusted.c -o test_pkey'
+Do '$ gcc -shared -fPIC -O2 -o libblockpkey.so block_pkey_set.c -ldl'
+Do '$ export ALLOW_PKEY_MODULE=/data4/home/shubhamshar1/e0256/E0256-LibMPK-Project/libtrusted.so'
+Do '$ LD_PRELOAD=./libblockpkey.so ./test_pkey' -> This should fail.
+Do '$ LD_PRELOAD=./libblockpkey.so ../main' -> This should pass.
