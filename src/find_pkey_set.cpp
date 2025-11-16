@@ -146,7 +146,7 @@ int binaryAnalysis(BPatch_addressSpace *app)
 
         for (auto &insn : insns)
         {
-            if (insn->readsMemory() || insn->writesMemory()) 
+            if (insn.readsMemory() || insn.writesMemory()) 
             {
                 insns_access_memory++;
             }
