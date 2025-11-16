@@ -1,4 +1,4 @@
-# E0256-LibMPK-Project
+# E0256 - MPK Based In Process Crypto Key Vault
 
 1. Go to the directory - E0256-libmpkProject
 2. Make the project - Run "$ make"
