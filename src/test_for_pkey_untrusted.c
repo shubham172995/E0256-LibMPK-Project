@@ -3,9 +3,11 @@
 #include <sys/mman.h>
 #include <string.h>
 
-int main() {
+int main() 
+{
     int pkey = pkey_alloc(0, 0);
-    if (pkey < 0) {
+    if (pkey < 0) 
+    {
         perror("pkey_alloc failed");
         return 1;
     }
@@ -14,9 +16,12 @@ int main() {
 
     // Try setting permissions:
     int ret = pkey_set(pkey, PKEY_DISABLE_WRITE);
-    if (ret < 0) {
+    if (ret < 0) 
+    {
         perror("pkey_set failed");
-    } else {
+    } 
+    else 
+    {
         printf("Successfully called pkey_set()\n");
     }
 
