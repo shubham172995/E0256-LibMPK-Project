@@ -1,6 +1,7 @@
 // Compile: g++ -std=c++11 find_pkey.cpp -I$PREFIX/include -L$PREFIX/lib -ldyninstAPI -linstructionAPI -lparseAPI -lsymtabAPI -ldw -ldwfl -o find_pkey
 // Adjust link flags to match your installed dyninst libs (PREFIX==/data4/home/..../opt)
 
+//  export PREFIX=/data4/home/shubhamshar1/opt
 //  g++ -std=c++11 find_pkey_set.cpp   -I"$PREFIX/include" -I"$PREFIX/include/dyninstAPI"   -L"$PREFIX/lib"   -ldyninstAPI -linstructionAPI -lparseAPI -lsymtabAPI -ldw -ldwfl   -o find_pkey
 // This program detects if the binary imports or defines 'pkey_set' (or other pkey_* symbols)
 
@@ -13,6 +14,9 @@
 #include <BPatch_image.h>
 #include <BPatch_function.h>
 #include <BPatch_module.h>
+#include <BPatch_point.h>
+#include <BPatch_flowGraph.h>
+#include <BPatch_basicBlock.h>
 
 BPatch bpatch;
 
