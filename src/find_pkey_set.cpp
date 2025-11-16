@@ -245,51 +245,55 @@ void InstrumentMemory(BPatch_addressSpace *app, const char* libTrustedPath)
         return;
     }
 
-    // 6) FALLBACK: scan callsites in modules and instrument call instructions that target pkey_set@plt
-    // This is slower but works even when pkey_set has no visible symbol in the module.
-    std::cerr << "FALLBACK: scanning call instructions in modules to locate pkey_set callsites\n";
+    // 6) FALLBACK for older Dyninst: scan call instructions using BPatch_locInstruction + getCalledFunction()
+std::cerr << "FALLBACK: scanning call instructions (old Dyninst API)\n";
 
-    // iterate functions in image
-    std::vector<BPatch_function*> allFuncs;
-    appImage->getProcedures(allFuncs); // getProcedures gives all functions/procedures
-    for (auto *f : allFuncs) 
+std::vector<BPatch_function*> allFuncs;
+appImage->getProcedures(allFuncs);
+
+for (auto *f : allFuncs) 
+{
+    if (!f) 
+        continue;
+
+    // get all instruction-level points
+    std::vector<BPatch_point*> *pts = f->findPoint(BPatch_locInstruction);
+    if (!pts) continue;
+
+    for (auto *p : *pts) 
     {
-        if (!f) 
+        if (!p) 
             continue;
-        // get call points inside this function
-        std::vector<BPatch_point*> *callPoints = f->findPoint(BPatch_callInstruction);
-        if (!callPoints) continue;
-        for (auto *p : *callPoints) 
+
+        // Old API: only ONE callee can be retrieved
+        BPatch_function *callee = p->getCalledFunction();
+        if (!callee) continue;
+
+        std::string nm = callee->getName();
+        if (nm.find("pkey_set") != std::string::npos) 
         {
-            // getCalledFunctions is a convenience to see resolved callee BPatch_function*
-            BPatch_function *callees[4];
-            int nc = p->getCalledFunctions(callees, 4);
-            if (nc <= 0) continue;
-            for (int i = 0; i < nc; ++i) 
+            std::cerr << "Found call to " << nm
+                      << " inside " << f->getName()
+                      << " — inserting wrapper\n";
+
+            if (!replFuncs.empty()) 
             {
-                BPatch_function *callee = callees[i];
-                if (!callee) continue;
-                std::string nm = callee->getName();
-                if (nm.find("pkey_set") != std::string::npos) 
-                {
-                    std::cerr << "Found call to " << nm << " in function " << f->getName() << " — instrumenting\n";
-                    if (!replFuncs.empty()) 
-                    {
-                        // Insert a call to replacement BEFORE the original call and optionally skip original:
-                        app->insertSnippet(BPatch_funcCallExpr(*replFuncs[0]), *p, BPatch_callBefore);
-                        // If you want to avoid executing original, you must also modify the original call to be a NOP or return early.
-                        // That's advanced: consider replacing the instruction bytes or using an entry snippet that returns early.
-                    } 
-                    else 
-                    {
-                        std::cerr << "No replacement function available; skipping instrumentation\n";
-                    }
-                }
+                // old constructor: BPatch_funcCallExpr(func, args)
+                std::vector<BPatch_snippet*> emptyArgs;
+                BPatch_funcCallExpr callRepl(*replFuncs[0], emptyArgs);
+
+                // insert BEFORE the original call
+                app->insertSnippet(callRepl, *p, BPatch_callBefore);
+
+                // If you want to block the original call,
+                // you must also NOP the instruction (more advanced).
             }
         }
     }
+}
 
-    std::cerr << "Fallback scanning complete\n";
+std::cerr << "Fallback scanning complete\n";
+
 }
 
 
