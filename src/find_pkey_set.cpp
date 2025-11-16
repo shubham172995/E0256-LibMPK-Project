@@ -9,6 +9,8 @@
 #include <vector>
 #include <string>
 
+#include <Instruction.h>
+
 #include <BPatch.h>
 #include <BPatch_binaryEdit.h>
 #include <BPatch_image.h>
@@ -81,7 +83,7 @@ std::vector<BPatch_point *> *FindEntryPoint(BPatch_addressSpace *app, std::vecto
         points = functions[0]->findPoint(BPatch_entry);
         for (auto *f : functions) 
         {
-            if (f && f->getName())
+            if (f && !f->getName().empty())
                 std::cout << "  - " << f->getName() << "\n";
         }
     } 
